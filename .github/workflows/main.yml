@@ -51,7 +51,7 @@ on:
       brand_name:
         description: "Kernel Branding (empty = stock version string)"
         type: string
-        default: Wild
+        default: Frostblade
       keep_kmi:
         description: "Keep stock KMI generation suffix in kernel version (fix #265)"
         type: boolean
@@ -64,7 +64,7 @@ on:
           - latest
           - verified
           - update
-        default: verified
+        default: latest
       root_flavor:
         description: "Root Flavor"
         type: choice
