@@ -316,6 +316,22 @@ jobs:
           config_list: |
             CONFIG_KSU_TOOLKIT_SUPPORT=y
 
+      - name: Single manager for SukiSU-Ultra (trim cert table)
+        # SukiSU hardcodes seven trusted manager certificates in
+        # kernel/manager/apk_sign.c (SukiSU, RKSU, KSU, WKSU, KowSU, KSUN, MKSU)
+        # and is_manager_apk() accepts the first match - no flags, no Kconfig,
+        # no Kbuild knob. The signature-fallback crowner in
+        # kernel/extension/dynamic_sig_fallback.c reuses is_manager_apk(), so
+        # trimming to one row narrows that path too. We keep SukiSU's own cert
+        # (0x35c / 947ae944…), the key the manager APK we ship is signed with.
+        # The script self-verifies and exits 1 if the table shape changes.
+        if: inputs.root_flavor == 'sukisu-ultra'
+        shell: bash
+        working-directory: ${{ github.workspace }}/kernel
+        run: |
+          set -euo pipefail
+          python3 "${GITHUB_WORKSPACE}/.github/scripts/trim_sukisu_managers.py" SukiSU-Ultra
+
       - name: Single manager for FinaSU (dynamic manager off)
         # Upstream ships CONFIG_KSU_DYNAMIC_MANAGER=y, which compiles a
         # nine-row signature table: FINASU_TRUSTED_* as the only trusted row
