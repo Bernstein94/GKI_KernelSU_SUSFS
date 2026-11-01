@@ -288,6 +288,20 @@ jobs:
             CONFIG_KSU_SUSFS_OPEN_REDIRECT=n
             CONFIG_KSU_SUSFS_SUS_MAP=n
 
+      - name: Single manager for BakaSU (multi-manager off)
+        # BakaSU's Kconfig ships CONFIG_KSU_MULTI_MANAGER_SUPPORT=y, which
+        # compiles three rows into apk_sign_keys[]: its own key plus
+        # tiann/KernelSU's and KOWX712/KernelSU's, with an optional custom row
+        # under EXPECTED_SIZE. Turning it off leaves exactly one row -
+        # EXPECTED_SIZE_BAKASU / EXPECTED_HASH_BAKASU (0x377 / d3469712…), which
+        # is the key their main-branch manager APK is signed with (checked
+        # against run 41207077584), so the manager we ship stays trusted.
+        if: inputs.root_flavor == 'bakasu'
+        uses: ./.github/actions/set-kernel-config
+        with:
+          config_list: |
+            CONFIG_KSU_MULTI_MANAGER_SUPPORT=n
+
       - name: Single manager for FinaSU (dynamic manager off)
         # Upstream ships CONFIG_KSU_DYNAMIC_MANAGER=y, which compiles a
         # nine-row signature table: FINASU_TRUSTED_* as the only trusted row
