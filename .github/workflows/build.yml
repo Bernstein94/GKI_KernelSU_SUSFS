@@ -302,6 +302,20 @@ jobs:
           config_list: |
             CONFIG_KSU_MULTI_MANAGER_SUPPORT=n
 
+      - name: Enable KernelSU toolkit support for BakaSU
+        # BakaSU's ksu_toolkit interface (backslashxx/ksu_toolkit), off upstream.
+        # Adds sys_reboot extensions behind a uid-0 check in
+        # kernel/supercall/supercall.c:114-118: CHANGE_MANAGER_UID,
+        # CHANGE_KSUVER, CHANGE_SPOOF_UNAME, CHANGE_KSUFLAGS. It does not add a
+        # trusted signature - the toolkit slot is registered at runtime by a
+        # root process (ksu_register_manager, index 253) - so the single-manager
+        # guarantee from the step above is unaffected.
+        if: inputs.root_flavor == 'bakasu'
+        uses: ./.github/actions/set-kernel-config
+        with:
+          config_list: |
+            CONFIG_KSU_TOOLKIT_SUPPORT=y
+
       - name: Single manager for FinaSU (dynamic manager off)
         # Upstream ships CONFIG_KSU_DYNAMIC_MANAGER=y, which compiles a
         # nine-row signature table: FINASU_TRUSTED_* as the only trusted row
