@@ -288,6 +288,22 @@ jobs:
             CONFIG_KSU_SUSFS_OPEN_REDIRECT=n
             CONFIG_KSU_SUSFS_SUS_MAP=n
 
+      - name: Single manager for FinaSU (dynamic manager off)
+        # Upstream ships CONFIG_KSU_DYNAMIC_MANAGER=y, which compiles a
+        # nine-row signature table: FINASU_TRUSTED_* as the only trusted row
+        # plus KernelSU/KowSU/KernelSU-Next/ReSukiSU/SukiSU/MKSU/RKSU/xxKSU as
+        # recognition-only presets the user can authorise at runtime. We want
+        # one manager and no runtime path to add another, so disable it: the
+        # classic two-slot table compiles instead, and with slot 1 replaced by
+        # the FinaSU cert (see the SUSFS action) that table is a single trusted
+        # entry. dynamic_manager.o still builds - FinaSU guards that file with
+        # no CONFIG symbol - it is simply no longer reachable from apk_sign.c.
+        if: inputs.root_flavor == 'finasu'
+        uses: ./.github/actions/set-kernel-config
+        with:
+          config_list: |
+            CONFIG_KSU_DYNAMIC_MANAGER=n
+
       - name: SUSFS
         # One step, one action: resolve the SUSFS commit, apply it for the
         # selected root, then run the post-patch fixes (ksu_close_fd restore,
