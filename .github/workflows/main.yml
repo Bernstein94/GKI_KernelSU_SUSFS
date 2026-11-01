@@ -31,6 +31,7 @@ on:
           - 6.1.x-android14
           - 6.6.x-android15
           - 6.12.x-android16
+          - 6.18.x-android17
         default: All
       os_patch_level:
         description: "Patch date (YYYY-MM), kernel sublevel, lts, or All (no filter)"
@@ -864,6 +865,41 @@ jobs:
       page_size: ${{ inputs.page_size || '4k' }}
     secrets: inherit
 
+  build-android17-6-18:
+    needs:
+      - resolve-sources
+      - build-nomount-module
+    if: "(github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !inputs.test_release_notes && ((github.event_name == 'schedule' && inputs.kernel_build_version == '') || inputs.kernel_build_version == 'All' || inputs.kernel_build_version == '6.18.x-android17')"
+    strategy:
+      fail-fast: false
+      matrix:
+        root: ${{ fromJson(needs.resolve-sources.outputs.root_matrix) }}
+    uses: ./.github/workflows/prepare.yml
+    with:
+      config_file: .github/config/android17-6.18.json
+      feature_set: ${{ needs.resolve-sources.outputs.feature_set }}
+      # simonpunk/susfs4ksu has no gki-android17-6.18 branch (19 branches, newest
+      # is gki-android16-6.12), so no SUSFS pin is emitted for this family. A
+      # SUSFS-enabled 6.18 dispatch therefore fails loudly in the SUSFS resolve
+      # step rather than quietly building without the patches. KernelSU-Next
+      # only for now: the 6.18 config is still marked a placeholder family.
+      susfs_commit: ''
+      nomount_commit: ${{ needs.resolve-sources.outputs.nomount_commit }}
+      kernel_patches_commit: ${{ needs.resolve-sources.outputs.kernel_patches_commit }}
+      root_flavor: ${{ matrix.root.root_flavor }}
+      produce_stock_configs: ${{ matrix.root.produce }}
+      root_commit: ${{ matrix.root.root_commit }}
+      variant: ${{ matrix.root.variant }}
+      ksu_branch: ${{ needs.resolve-sources.outputs.kernelsu_commit }}
+      anykernel3_commit: ${{ needs.resolve-sources.outputs.anykernel3_commit }}
+      droidspaces_commit: ${{ needs.resolve-sources.outputs.droidspaces_commit }}
+      brand_name: ${{ inputs.brand_name || 'Wild' }}
+      keep_kmi: ${{ inputs.keep_kmi || false }}
+      os_patch_level: ${{ inputs.os_patch_level || 'All' }}
+      allow_version_mismatch: ${{ inputs.allow_version_mismatch || false }}
+      page_size: ${{ inputs.page_size || '4k' }}
+    secrets: inherit
+
   telegram-announce:
     # Per-family mini-release digests posted into the Wild Kernels Testing
     # forum topics (one topic per kernel branch). Skipped families (gated
@@ -888,6 +924,7 @@ jobs:
       - build-android14-6-1
       - build-android15-6-6
       - build-android16-6-12
+      - build-android17-6-18
     runs-on: ubuntu-latest
     env:
       TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -975,9 +1012,10 @@ jobs:
           FR_5: ${{ needs.build-android14-6-1.result }}
           FR_6: ${{ needs.build-android15-6-6.result }}
           FR_7: ${{ needs.build-android16-6-12.result }}
+          FR_8: ${{ needs.build-android17-6-18.result }}
         run: |
           set -uo pipefail
-          results="build-android12-5-10=$FR_1,build-android13-5-10=$FR_2,build-android13-5-15=$FR_3,build-android14-5-15=$FR_4,build-android14-6-1=$FR_5,build-android15-6-6=$FR_6,build-android16-6-12=$FR_7"
+          results="build-android12-5-10=$FR_1,build-android13-5-10=$FR_2,build-android13-5-15=$FR_3,build-android14-5-15=$FR_4,build-android14-6-1=$FR_5,build-android15-6-6=$FR_6,build-android16-6-12=$FR_7,build-android17-6-18=$FR_8"
           if python3 .github/scripts/assemble_digest_input.py \
               --buildinfo-dir /tmp/buildinfo \
               --family-results "$results" \
@@ -1238,6 +1276,7 @@ jobs:
       - build-android14-6-1
       - build-android15-6-6
       - build-android16-6-12
+      - build-android17-6-18
 
     steps:
       - name: Download Misc Artifacts
@@ -1335,6 +1374,7 @@ jobs:
       - build-android14-6-1
       - build-android15-6-6
       - build-android16-6-12
+      - build-android17-6-18
       - build-nomount-module
       - publish-manager-artifacts
       - notes-preview
@@ -1371,6 +1411,7 @@ jobs:
           check_selected "6.1.x-android14" "build-android14-6-1" "${{ needs.build-android14-6-1.result }}"
           check_selected "6.6.x-android15" "build-android15-6-6" "${{ needs.build-android15-6-6.result }}"
           check_selected "6.12.x-android16" "build-android16-6-12" "${{ needs.build-android16-6-12.result }}"
+          check_selected "6.18.x-android17" "build-android17-6-18" "${{ needs.build-android17-6-18.result }}"
 
           if [[ "$failed" -ne 0 ]]; then
             exit 1
@@ -1765,7 +1806,7 @@ jobs:
 
   notes-preview:
     if: always() && (github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && vars.ENABLE_SCHEDULED_BUILDS == 'true'))
-    needs: [resolve-sources, build-android12-5-10, build-android13-5-10, build-android13-5-15, build-android14-5-15, build-android14-6-1, build-android15-6-6, build-android16-6-12]
+    needs: [resolve-sources, build-android12-5-10, build-android13-5-10, build-android13-5-15, build-android14-5-15, build-android14-6-1, build-android15-6-6, build-android16-6-12, build-android17-6-18]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7

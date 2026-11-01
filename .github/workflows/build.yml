@@ -112,10 +112,10 @@ jobs:
           # Kleaf exposes --page_size only on the build branches used by these
           # GKI families (main-kernel-build-2023/2024, main-kernel-2025).
           case "${{ inputs.version }}" in
-            android14-6.1|android15-6.6|android16-6.12) ;;
+            android14-6.1|android15-6.6|android16-6.12|android17-6.18) ;;
             *)
               echo "ERROR: page_size=16k is not supported for ${{ inputs.version }}." >&2
-              echo "Supported families: android14-6.1, android15-6.6, android16-6.12." >&2
+              echo "Supported families: android14-6.1, android15-6.6, android16-6.12, android17-6.18." >&2
               exit 1
               ;;
           esac
@@ -491,7 +491,7 @@ jobs:
         env:
           SOURCE_DATE_EPOCH: ${{ env.SOURCE_DATE_EPOCH }}
           KBUILD_BUILD_TIMESTAMP: ${{ env.KBUILD_BUILD_TIMESTAMP }}
-          KBUILD_BUILD_USER: ${{ (inputs.version == 'android15-6.6' || inputs.version == 'android16-6.12') && 'kleaf' || 'build-user' }}
+          KBUILD_BUILD_USER: ${{ (inputs.version == 'android15-6.6' || inputs.version == 'android16-6.12' || inputs.version == 'android17-6.18') && 'kleaf' || 'build-user' }}
           KBUILD_BUILD_HOST: build-host
         uses: ./.github/actions/build-kernel
         with:
