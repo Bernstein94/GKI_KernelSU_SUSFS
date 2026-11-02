@@ -184,6 +184,11 @@ runs:
       shell: bash
       working-directory: ${{ github.workspace }}/kernel/common
       run: |
+        # android17-6.18: the SUS_MAP hook in show_smaps_rollup() is NOT in the
+        # patch file. Google keeps reworking that loop (lock_ctx_mm + VMA_ITERATOR
+        # in 6.18), so a context hunk applies with a 40-line offset on one
+        # sublevel and rejects outright on the next. The patch ships without it
+        # and the hook is inserted by anchor below, after the patch applies.
         if [ "${{ inputs.version }}" = "android16-6.12" ]; then
           # Sublevels below 6.12.92 predate the show_smaps_rollup refactor and
           # never had the fs/exec.c dma-buf include, so plain `patch` rejects
@@ -195,6 +200,10 @@ runs:
           # Deliberately no --forward (PR #342 uses --batch --forward here):
           # a reversed/already-applied hunk must fail loudly, not be skipped.
           patch -p1 < 50_add_susfs_in_gki-${{ inputs.version }}.patch
+        fi
+
+        if [ "${{ inputs.version }}" = "android17-6.18" ]; then
+          python3 "${{ github.workspace }}/.github/scripts/susfs_618_sus_map.py" "$PWD"
         fi
 
         # SUSFS's OPEN_REDIRECT code unconditionally calls VMA_PAD_START(), which

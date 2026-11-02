@@ -56,19 +56,27 @@ def fail(msg: str) -> NoReturn:
     sys.exit(f"ERROR: {msg}")
 
 
-def patch_decls(path: str, after_prefix: str) -> None:
+def patch_decls(path: str) -> None:
+    """Insert the declarations after the LAST #include.
+
+    Anchoring on a named include is wrong: blkdev_helper.c starts with
+    <linux/version.h> before <linux/blkdev.h>, so declaring dev_t/bool there
+    fails with "unknown type name 'dev_t'". The last include guarantees
+    blkdev.h and types.h are already in scope.
+    """
     src = open(path, encoding="utf-8").read()
     if MARKER in src:
         print(f"  {path}: already patched, skipping")
         return
     lines = src.split("\n")
-    idx = [i for i, ln in enumerate(lines) if ln.startswith(after_prefix)]
-    if len(idx) != 1:
-        fail(f"{path}: expected exactly one line starting with {after_prefix!r}, found {len(idx)}")
+    idx = [i for i, ln in enumerate(lines) if ln.startswith("#include")]
+    if not idx:
+        fail(f"{path}: no #include lines found")
+    at = idx[-1] + 1
     block = DECLS.format(marker=MARKER).rstrip("\n").split("\n")
-    lines[idx[0] + 1 : idx[0] + 1] = [""] + block
+    lines[at:at] = [""] + block
     open(path, "w", encoding="utf-8").write("\n".join(lines))
-    print(f"  {path}: declarations added after {after_prefix!r}")
+    print(f"  {path}: declarations added after the last #include (line {at})")
 
 
 def patch_call(path: str) -> None:
@@ -91,8 +99,8 @@ def main() -> None:
     helper = f"{root}/blkdev_helper.c"
 
     print(f"[+] BBG 6.18 compat: {root}")
-    patch_decls(compat, "#include <linux/version.h>")
-    patch_decls(helper, "#include <linux/version.h>")
+    patch_decls(compat)
+    patch_decls(helper)
     patch_call(helper)
 
     # verify

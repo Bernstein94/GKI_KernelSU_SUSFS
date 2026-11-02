@@ -1477,21 +1477,6 @@ index 74f08cb0d..e800fcc18 100644
  	if (!vma_data_pages(vma))
  		goto show_pad;
  
-@@ -1552,7 +1601,14 @@ static int show_smaps_rollup(struct seq_file *m, void *v)
- 
- 	vma_start = vma->vm_start;
- 	do {
-+#ifdef CONFIG_KSU_SUSFS_SUS_MAP
-+		if (vma->vm_file && SUSFS_IS_INODE_SUS_MAP(file_inode(vma->vm_file)))
-+			goto bypass_orig_flow;
-+#endif // #ifdef CONFIG_KSU_SUSFS_SUS_MAP
- 		smap_gather_stats(priv, vma, &mss, 0);
-+#ifdef CONFIG_KSU_SUSFS_SUS_MAP
-+bypass_orig_flow:
-+#endif // #ifdef CONFIG_KSU_SUSFS_SUS_MAP
- 		last_vma_end = vma->vm_end;
- 
- 		/*
 @@ -2420,6 +2476,9 @@ static ssize_t pagemap_read(struct file *file, char __user *buf,
  	while (count && (start_vaddr < end_vaddr)) {
  		int len;
