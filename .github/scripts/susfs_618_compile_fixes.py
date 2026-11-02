@@ -46,16 +46,51 @@ def die(msg: str) -> NoReturn:
 
 ALLOC_FWD = "static struct mount *alloc_vfsmnt(const char *name);\n\n"
 
-WRAPPER = """static struct mount *{name}({params})
-{{
-	/* 6.18 port: the fake-mnt_id allocator is not ported. The 6.12 body this
-	 * copied no longer matches any 6.18 branch (mount ids moved to an xarray,
-	 * mnt_hash's container changed, mnt_umounting is gone), so allocate a
-	 * normal mount instead - it carries a real mnt_id. Mount hiding still
-	 * works; only the id spoofing layer is missing.
-	 */
-{unused}	return alloc_vfsmnt(name);
-}}
+ALLOC_HELPER = """/* 6.18 port of the SUSFS mount allocators.
+ *
+ * 6.12 copied alloc_vfsmnt()'s body so a ksu mount could take a fake mnt_id
+ * without borrowing the IDA. 6.18 moved mount ids to an xarray and reworked
+ * struct mount (mnt_hash container, no mnt_umounting), and the branches differ
+ * from each other, so copying the body cannot work. Instead allocate with the
+ * tree's own alloc_vfsmnt() and then swap the id: the real one is released back
+ * to the xarray and the mount takes the id SUSFS wants. Nothing else in struct
+ * mount has to be known here.
+ */
+static struct mount *susfs_alloc_ksu_vfsmnt(const char *name, int forced_mnt_id)
+{
+	struct mount *mnt = alloc_vfsmnt(name);
+
+	if (!mnt)
+		return NULL;
+
+	/* release the id alloc_vfsmnt() took ... */
+	xa_erase(&mnt_id_xa, mnt->mnt_id);
+
+	if (forced_mnt_id) {
+		/* ... and re-use the original mount's id (unshared clone) */
+		mnt->mnt_id = forced_mnt_id;
+	} else {
+		int id = DEFAULT_KSU_MNT_ID + (int)atomic64_inc_return(&sus_mnt_id_ctr);
+
+		while (xa_load(&mnt_id_xa, id))
+			id++;
+		mnt->mnt_id = id;
+	}
+
+	/* never collide with a real mnt_id_unique */
+	mnt->mnt_id_unique = READ_ONCE(mnt_id_ctr) + atomic64_inc_return(&sus_mnt_id_ctr);
+	return mnt;
+}
+
+static struct mount *susfs_alloc_unshare_ksu_vfsmnt(const char *name, int old_mnt_id)
+{
+	return susfs_alloc_ksu_vfsmnt(name, old_mnt_id);
+}
+
+static struct mount *susfs_alloc_non_unshare_ksu_vfsmnt(const char *name)
+{
+	return susfs_alloc_ksu_vfsmnt(name, 0);
+}
 """
 
 PROTOS = """int susfs_get_non_sus_mnt_id_from_mnt(struct mount *orig_mnt);
@@ -92,30 +127,22 @@ def rewrite_alloc_helpers(root: str) -> None:
     src = open(path, encoding="utf-8").read()
     changed = False
 
-    for sig, name, params, unused in (
-        (
-            "static struct mount *susfs_alloc_unshare_ksu_vfsmnt(const char *name, int old_mnt_id)",
-            "susfs_alloc_unshare_ksu_vfsmnt",
-            "const char *name, int old_mnt_id",
-            "\t(void)old_mnt_id;\n",
-        ),
-        (
-            "static struct mount *susfs_alloc_non_unshare_ksu_vfsmnt(const char *name)",
-            "susfs_alloc_non_unshare_ksu_vfsmnt",
-            "const char *name",
-            "",
-        ),
-    ):
-        start, end = find_func(src, sig)
-        body = src[start:end]
-        if "return alloc_vfsmnt(name);" in body:
-            print(f"  namespace.c: {name} already wrapped")
-            continue
-        if "kmem_cache_zalloc" not in body and "return alloc_vfsmnt(name);" not in body:
-            die(f"namespace.c: {name} does not look like the ported allocator")
-        src = src[:start] + WRAPPER.format(name=name, params=params, unused=unused) + src[end:]
+    unshare_sig = "static struct mount *susfs_alloc_unshare_ksu_vfsmnt(const char *name, int old_mnt_id)"
+    plain_sig = "static struct mount *susfs_alloc_non_unshare_ksu_vfsmnt(const char *name)"
+
+    if "susfs_alloc_ksu_vfsmnt(const char *name, int forced_mnt_id)" in src:
+        print("  namespace.c: fake-id allocators already ported")
+    else:
+        # Drop the copied 6.12 body of the second allocator, then replace the
+        # first with the ported implementation (which defines both names).
+        start, end = find_func(src, plain_sig)
+        if "kmem_cache_zalloc" not in src[start:end]:
+            die("namespace.c: susfs_alloc_non_unshare_ksu_vfsmnt is not the ported allocator")
+        src = src[:start] + src[end:]
+        start, end = find_func(src, unshare_sig)
+        src = src[:start] + ALLOC_HELPER + src[end:]
         changed = True
-        print(f"  namespace.c: {name} -> alloc_vfsmnt() wrapper")
+        print("  namespace.c: allocators replaced by susfs_alloc_ksu_vfsmnt() (fake ids restored)")
 
     if changed and ALLOC_FWD not in src:
         anchor = "static struct mount *susfs_alloc_unshare_ksu_vfsmnt("
@@ -169,6 +196,30 @@ def add_missing_prototypes(root: str) -> None:
     print("  namespace.c: susfs_get_non_sus_* prototypes added")
 
 
+SVC_PROTOS = """int susfs_security_context_to_sid(const char *scontext, u32 scontext_len, u32 *sid, gfp_t gfp);
+int susfs_security_context_str_to_sid(const char *scontext, u32 *sid, gfp_t gfp);
+void susfs_security_compute_av_user(u32 ssid, u32 tsid, u16 tclass, struct av_decision *avd);
+
+"""
+
+
+def add_services_prototypes(root: str) -> None:
+    """-Wmissing-prototypes: the ported helpers need declarations above them."""
+    path = os.path.join(root, "security/selinux/ss/services.c")
+    src = open(path, encoding="utf-8").read()
+    sig = "int susfs_security_context_to_sid(const char *scontext, u32 scontext_len, u32 *sid,"
+    if sig not in src:
+        print("  services.c: susfs_security_* definitions not found (nothing to do)")
+        return
+    if "int susfs_security_context_to_sid(const char *scontext, u32 scontext_len, u32 *sid, gfp_t gfp);" in src:
+        print("  services.c: susfs_security_* prototypes already present")
+        return
+    at = src.find(sig)
+    src = src[:at] + SVC_PROTOS + src[at:]
+    open(path, "w", encoding="utf-8").write(src)
+    print("  services.c: susfs_security_* prototypes added")
+
+
 def fix_selinux_cred_type(root: str) -> None:
     path = os.path.join(root, "security/selinux/hooks.c")
     src = open(path, encoding="utf-8").read()
@@ -199,8 +250,8 @@ def main() -> None:
     root = sys.argv[1].rstrip("/")
     print(f"[+] 6.18 SUSFS compile fixes: {root}")
     rewrite_alloc_helpers(root)
-    drop_fake_id_free_guard(root)
     add_missing_prototypes(root)
+    add_services_prototypes(root)
     fix_selinux_cred_type(root)
     print("[+] done")
 
