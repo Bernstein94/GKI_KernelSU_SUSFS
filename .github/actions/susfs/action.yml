@@ -42,6 +42,16 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
+        # android17-6.18 has no upstream susfs4ksu branch (newest is
+        # gki-android16-6.12), so it runs a port of the 6.12 patch maintained in
+        # .github/actions/susfs/susfs618 - a materialised susfs4ksu tree that
+        # susfs-setup builds locally. Skipping the remote resolve here keeps a
+        # 6.18 dispatch from failing on an empty ref.
+        if [ "${{ inputs.version }}" = "android17-6.18" ]; then
+          echo "android17-6.18: no upstream SUSFS branch, using the local 6.12->6.18 port"
+          echo "commit=local-618" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
         # KernelSU-Next (next) always uses the latest susfs4ksu gki branch tip so
         # SUSFS stays API-matched to the always-latest KernelSU-Next tree. All
         # other roots (kernelsu, bakasu, finasu, sukisu-ultra) use the pinned
