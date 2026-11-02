@@ -203,7 +203,7 @@ runs:
         fi
 
         if [ "${{ inputs.version }}" = "android17-6.18" ]; then
-          python3 "${{ github.workspace }}/.github/scripts/susfs_618_sus_map.py" "$PWD"
+          python3 "${{ github.workspace }}/.github/scripts/susfs_618_task_mmu.py" "$PWD"
         fi
 
         # SUSFS's OPEN_REDIRECT code unconditionally calls VMA_PAD_START(), which

@@ -69,10 +69,16 @@ def patch_decls(path: str) -> None:
         print(f"  {path}: already patched, skipping")
         return
     lines = src.split("\n")
-    idx = [i for i, ln in enumerate(lines) if ln.startswith("#include")]
+    # Anchor on <linux/blkdev.h>, which is the first include in both files and
+    # brings dev_t/bool into scope. Anchoring on "the last #include" was wrong:
+    # blkdev_helper.c has another #include past the functions that call the
+    # wrapper (line 123), which left the declaration below its uses.
+    idx = [i for i, ln in enumerate(lines) if ln.startswith("#include <linux/blkdev.h>")]
     if not idx:
-        fail(f"{path}: no #include lines found")
-    at = idx[-1] + 1
+        idx = [i for i, ln in enumerate(lines[:40]) if ln.startswith("#include")]
+    if not idx:
+        fail(f"{path}: no usable #include line found")
+    at = idx[0] + 1
     block = DECLS.format(marker=MARKER).rstrip("\n").split("\n")
     lines[at:at] = [""] + block
     open(path, "w", encoding="utf-8").write("\n".join(lines))
