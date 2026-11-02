@@ -208,6 +208,9 @@ runs:
           # allocators (xarray + struct mount changes), -Wmissing-prototypes on
           # the susfs_get_non_sus_* helpers, and SELinux's cred/task split.
           python3 "${{ github.workspace }}/.github/scripts/susfs_618_compile_fixes.py" "$PWD"
+          # 6.18 enables -Wmissing-prototypes by default; the 6.12 source only
+          # declares 19 of fs/susfs.c's ~40 non-static functions.
+          python3 "${{ github.workspace }}/.github/scripts/susfs_618_prototypes.py" "$PWD"
         fi
 
         # SUSFS's OPEN_REDIRECT code unconditionally calls VMA_PAD_START(), which
