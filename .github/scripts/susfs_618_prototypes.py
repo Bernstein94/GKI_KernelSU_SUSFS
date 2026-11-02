@@ -1,107 +1,79 @@
 #!/usr/bin/env python3
-"""Add the prototypes fs/susfs.c is missing, for android17-6.18.
+"""Silence -Wmissing-prototypes for the vendored fs/susfs.c on android17-6.18.
 
-6.18's build enables -Wmissing-prototypes by default, and the 6.12 SUSFS source
-only declares 19 of its ~40 non-static functions in include/linux/susfs.h (the
-rest are defined in susfs.c with nothing declaring them). On 6.12 the warning
-does not fire, so the same file compiles there and dies here:
+6.18 enables -Wmissing-prototypes by default and the 6.12 SUSFS source declares
+only 19 of its ~40 non-static functions, so fs/susfs.c fails with ~40 of:
 
   fs/susfs.c:1034:6: error: no previous prototype for function
                     'susfs_spoof_cmdline_or_bootconfig'
-  fs/susfs.c:118:5:  error: no previous prototype for function
-                    'susfs_add_sus_avd_allowed_by_type'
-  ... (about 40 of them)
 
-This scans the file for non-static definitions and inserts a prototype for any
-that the file or its headers do not already declare, right after the last
-#include. Signatures are copied verbatim from the definitions, so they cannot
-drift from the implementation.
+Generating the missing prototypes was tried and is not safe: several functions
+are defined twice under #if/#else with *different* signatures, e.g.
 
-Idempotent, no-op when everything is already declared.
+  #if LINUX_VERSION_CODE < KERNEL_VERSION(6,12,0)
+  bool susfs_is_inode_sus_path(struct mnt_idmap* idmap, struct inode *inode)
+  #else
+  bool susfs_is_inode_sus_path(struct inode *inode)
+  #endif
+
+so a single emitted prototype collides with the other branch ("conflicting types
+for 'susfs_is_inode_sus_path'"), and attribute-prefixed definitions
+(__attribute__((hot)) bool susfs_is_inode_sus_kstat(...)) are easy to miss.
+
+Since this is vendored third-party code whose definitions are the source of
+truth, the pragmatic fix is to suppress that single warning for this one file.
+Everything else keeps -Wmissing-prototypes.
+
+Idempotent.
 
 Usage: susfs_618_prototypes.py <kernel/common>
 """
 
 import os
-import re
 import sys
-from typing import NoReturn
 
-MARKER = "/* 6.18: prototypes for non-static susfs functions (added by GKI_KernelSU_SUSFS) */"
+MARKER = "/* 6.18: silence -Wmissing-prototypes for this vendored file (GKI_KernelSU_SUSFS) */"
 
-SKIP_NAMES = {"if", "for", "while", "switch", "return", "sizeof", "typeof", "container_of"}
-DEF_RE = re.compile(r"^([A-Za-z_][\w \t\*]*?)\b([A-Za-z_]\w*)\s*\(")
-
-
-def die(msg: str) -> NoReturn:
-    sys.exit(f"ERROR: {msg}")
-
-
-def collect_definitions(lines: list[str]) -> list[tuple[int, str, str]]:
-    """Return (index, name, signature) for non-static definitions at column 0."""
-    out = []
-    for i, ln in enumerate(lines):
-        if not ln or ln[0] in " \t/#*}" or ln.startswith("static") or ln.startswith("inline"):
-            continue
-        if "(" not in ln:
-            continue
-        m = DEF_RE.match(ln)
-        if not m:
-            continue
-        name = m.group(2)
-        if name in SKIP_NAMES:
-            continue
-        sig, depth, j = ln, ln.count("(") - ln.count(")"), i
-        while depth > 0 and j + 1 < len(lines):
-            j += 1
-            sig += "\n" + lines[j]
-            depth += lines[j].count("(") - lines[j].count(")")
-        sig = sig.split("{")[0].rstrip()
-        if ")" not in sig:
-            continue
-        sig = sig[: sig.rindex(")") + 1]
-        if sig.count("(") != sig.count(")"):
-            continue
-        out.append((i, name, sig))
-    return out
+BLOCK = f"""{MARKER}
+/*
+ * 6.18 turns -Wmissing-prototypes on by default. The 6.12 SUSFS source only
+ * declares 19 of its ~40 non-static functions, and several are defined twice
+ * under #if/#else with different signatures (susfs_is_inode_sus_path), so
+ * generated prototypes cannot cover them safely. The definitions stay the
+ * source of truth; the warning is suppressed for this file only.
+ */
+#if defined(__clang__)
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+#elif defined(__GNUC__) && __GNUC__ >= 8
+#pragma GCC diagnostic ignored "-Wmissing-prototypes"
+#endif
+"""
 
 
 def main() -> None:
     if len(sys.argv) != 2:
-        die("usage: susfs_618_prototypes.py <kernel/common>")
+        sys.exit("usage: susfs_618_prototypes.py <kernel/common>")
     path = os.path.join(sys.argv[1].rstrip("/"), "fs/susfs.c")
     if not os.path.exists(path):
-        die(f"{path}: not found")
+        sys.exit(f"ERROR: {path}: not found")
+
     src = open(path, encoding="utf-8").read()
     if MARKER in src:
-        print("  fs/susfs.c: prototypes already added")
+        print("  fs/susfs.c: -Wmissing-prototypes already silenced")
         return
 
     lines = src.split("\n")
-    defs = collect_definitions(lines)
-    missing = [sig for _, name, sig in defs
-               if not re.search(rf"\b{re.escape(name)}\s*\([^;]*\)\s*;", src)]
-
-    if not missing:
-        print("  fs/susfs.c: every non-static definition is already declared")
-        return
-
-    block = [MARKER] + [f"{sig};" for sig in missing] + [""]
     idx = [i for i, ln in enumerate(lines) if ln.startswith("#include")]
     if not idx:
-        die("fs/susfs.c: no #include lines found")
+        sys.exit("ERROR: fs/susfs.c: no #include lines found")
     at = idx[-1] + 1
-    lines[at:at] = [""] + block
-    src = "\n".join(lines)
-    open(path, "w", encoding="utf-8").write(src)
-    print(f"  fs/susfs.c: added {len(missing)} prototype(s) after the last #include")
+    lines[at:at] = [""] + BLOCK.split("\n")
+    open(path, "w", encoding="utf-8").write("\n".join(lines))
 
     check = open(path, encoding="utf-8").read()
-    still = [n for _, n, _ in collect_definitions(check.split("\n"))
-             if not re.search(rf"\b{re.escape(n)}\s*\([^;]*\)\s*;", check)]
-    if still:
-        die(f"fs/susfs.c: still undeclared after write: {', '.join(sorted(set(still))[:5])}")
-    print("  fs/susfs.c: verified")
+    if MARKER not in check or "Wmissing-prototypes" not in check:
+        sys.exit("ERROR: fs/susfs.c: pragma block missing after write")
+    print("  fs/susfs.c: -Wmissing-prototypes silenced (vendored SUSFS source)")
 
 
 if __name__ == "__main__":
