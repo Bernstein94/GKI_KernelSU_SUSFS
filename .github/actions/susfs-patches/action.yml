@@ -204,6 +204,10 @@ runs:
 
         if [ "${{ inputs.version }}" = "android17-6.18" ]; then
           python3 "${{ github.workspace }}/.github/scripts/susfs_618_task_mmu.py" "$PWD"
+          # 6.18 API deltas the 6.12 patch cannot express: the fake-mnt_id
+          # allocators (xarray + struct mount changes), -Wmissing-prototypes on
+          # the susfs_get_non_sus_* helpers, and SELinux's cred/task split.
+          python3 "${{ github.workspace }}/.github/scripts/susfs_618_compile_fixes.py" "$PWD"
         fi
 
         # SUSFS's OPEN_REDIRECT code unconditionally calls VMA_PAD_START(), which
