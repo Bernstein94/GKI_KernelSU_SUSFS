@@ -37,7 +37,10 @@ runs:
                  KernelSU/10_enable_susfs_for_ksu.patch; do
           [ -s "$DEST/$f" ] || { echo "ERROR: bundle incomplete, missing $f" >&2; exit 1; }
         done
-        echo "SUSFS_COMMIT=local-618" >> "$GITHUB_ENV"
+        # Report the real upstream revision this port was generated from, so the
+        # build metadata carries genuine provenance (the metadata check wants a
+        # 40-hex sha; "local-618" is only a sentinel for the setup branch above).
+        echo "SUSFS_COMMIT=68f62fae75ada3959f816841a3c64299383521ed" >> "$GITHUB_ENV"
         echo "Local SUSFS tree ready (ported from gki-android16-6.12)"
 
     - name: Clone SUSFS Branch
