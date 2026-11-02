@@ -220,6 +220,32 @@ def add_services_prototypes(root: str) -> None:
     print("  services.c: susfs_security_* prototypes added")
 
 
+STATFS_PROTOS = """int statfs_by_dentry_wrapper(struct dentry *dentry, struct kstatfs *buf);
+int calculate_f_flags_wrapper(struct vfsmount *mnt);
+
+"""
+
+
+def add_statfs_prototypes(root: str) -> None:
+    """-Wmissing-prototypes: statfs wrappers are exported for KernelSU to call."""
+    path = os.path.join(root, "fs/statfs.c")
+    if not os.path.exists(path):
+        print("  statfs.c: not present (nothing to do)")
+        return
+    src = open(path, encoding="utf-8").read()
+    sig = "int statfs_by_dentry_wrapper(struct dentry *dentry, struct kstatfs *buf){"
+    if sig not in src:
+        print("  statfs.c: wrapper definitions not found (nothing to do)")
+        return
+    if "int statfs_by_dentry_wrapper(struct dentry *dentry, struct kstatfs *buf);" in src:
+        print("  statfs.c: prototypes already present")
+        return
+    at = src.find(sig)
+    src = src[:at] + STATFS_PROTOS + src[at:]
+    open(path, "w", encoding="utf-8").write(src)
+    print("  statfs.c: wrapper prototypes added")
+
+
 def fix_selinux_cred_type(root: str) -> None:
     path = os.path.join(root, "security/selinux/hooks.c")
     src = open(path, encoding="utf-8").read()
@@ -252,6 +278,7 @@ def main() -> None:
     rewrite_alloc_helpers(root)
     add_missing_prototypes(root)
     add_services_prototypes(root)
+    add_statfs_prototypes(root)
     fix_selinux_cred_type(root)
     print("[+] done")
 
