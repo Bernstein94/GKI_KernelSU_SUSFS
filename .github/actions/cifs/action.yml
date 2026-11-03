@@ -29,5 +29,13 @@ runs:
       shell: bash
       working-directory: ${{ github.workspace }}/kernel/common
       run: |
-        python3 "${{ github.workspace }}/.github/scripts/cifs_modules_fix.py" "$PWD" \
-          fs/netfs/netfs.ko lib/crypto/libarc4.ko
+        # netfs.ko is never produced (CONFIG_NETFS_SUPPORT=y above), so its entry
+        # always goes. libarc4.ko differs per family: 6.12 still builds it as a
+        # module (arc4 is used by other subsystems) and Kleaf then fails with
+        # "The following kernel modules are built but not copied ... libarc4.ko"
+        # if we prune it; 6.18 builds it in, so its entry must go there.
+        MODULES="fs/netfs/netfs.ko"
+        if [ "${{ inputs.version }}" = "android17-6.18" ]; then
+          MODULES="$MODULES lib/crypto/libarc4.ko"
+        fi
+        python3 "${{ github.workspace }}/.github/scripts/cifs_modules_fix.py" "$PWD" $MODULES
